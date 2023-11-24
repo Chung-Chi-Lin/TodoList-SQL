@@ -2,9 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const sql = require('mssql');
-const todoRoutes = require('./todoRoutes');
 const app = express();
 
+// 连接池配置
 const dbConfig = {
 	user: process.env.DB_USER,
 	password: process.env.DB_PASSWORD,
@@ -17,6 +17,7 @@ const dbConfig = {
 	}
 };
 
+// 创建连接池
 const pool = new sql.ConnectionPool(dbConfig);
 const poolConnect = pool.connect();
 
@@ -26,9 +27,12 @@ poolConnect.then(() => {
 	console.error('Database connection error:', err);
 });
 
-// 中間件
-app.use(express.json()); // 解析 JSON 格式的請求體
-app.use(cors()); // 啟用 CORS
+// 中间件
+app.use(express.json()); // 解析 JSON 格式的请求体
+app.use(cors()); // 启用 CORS
+
+// 导入 todoRoutes 并传递连接池
+const todoRoutes = require('./todoRoutes')(pool);
 
 // 使用 Todo 路由
 app.use('/api', todoRoutes);
@@ -38,8 +42,10 @@ app.get('/', (req, res) => {
 	res.send('Hello World!');
 });
 
-// 啟動服務器
+// 启动服务器
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
 	console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = app; // 导出 app 以便在其他文件中使用
