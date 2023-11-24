@@ -51,14 +51,14 @@ module.exports = function(pool) {
 		try {
 			const { username, password } = req.body;
 			const hashedPassword = await bcrypt.hash(password, 10);
-			await pool.connect();
+
 			console.log("測試", username, password);
-			const res = await executeSQL(
+			const result = await executeSQL(
 					pool,
 					'INSERT INTO Users (Username, PasswordHash) VALUES (@username, @password)',
 					{ username: username, password: hashedPassword }
 			);
-			console.log("測試", res);
+			console.log("測試", result);
 			res.status(201).send('註冊成功');
 		} catch (err) {
 			console.error(err);
