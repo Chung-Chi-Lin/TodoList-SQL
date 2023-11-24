@@ -1,7 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const sql = require('mssql');
 
 module.exports = function(pool) {
 	const router = express.Router();
@@ -53,13 +52,13 @@ module.exports = function(pool) {
 			const { username, password } = req.body;
 			const hashedPassword = await bcrypt.hash(password, 10);
 			await pool.connect();
-
-			const result = await executeSQL(
+			console.log("測試", username, password);
+			const res = await executeSQL(
 					pool,
 					'INSERT INTO Users (Username, PasswordHash) VALUES (@username, @password)',
 					{ username: username, password: hashedPassword }
 			);
-
+			console.log("測試", res);
 			res.status(201).send('註冊成功');
 		} catch (err) {
 			console.error(err);
