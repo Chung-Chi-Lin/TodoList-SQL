@@ -40,7 +40,36 @@ module.exports = function(pool) {
 			throw err;
 		}
 	}
+// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
+	router.get('/check-line-id', async (req, res) => {
+		try {
+			const lineId = req.query.lineId;
+			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
 
+			if (result.recordset.length > 0) {
+				// 找到匹配的 Line ID，返回相關資料
+				const userData = result.recordset[0];
+				res.json({
+					found: true,
+					message: 'Line ID 驗證成功。',
+					data: {
+						lineUserId: userData.line_user_id,
+						lineUserName: userData.line_user_name,
+						lineUserType: userData.line_user_type,
+						lineUserDriver: userData.line_user_driver
+					}
+				});
+			} else {
+				// 沒找到匹配的 Line ID
+				res.json({ found: false, message: 'Line ID 不存在。' });
+			}
+		} catch (err) {
+			console.error('SQL Error:', err);
+			res.status(500).send('伺服器錯誤');
+		}
+	});
+
+	// ==============================================================================================================
   // 測試: GET 請求 - 獲取所有待辦事項
 	router.get('/', (req, res) => {
 		res.json({ message: '獲取所有待辦事項' });
@@ -52,13 +81,12 @@ module.exports = function(pool) {
 			const { username, password } = req.body;
 			const hashedPassword = await bcrypt.hash(password, 10);
 
-			console.log("測試", username, password);
 			const result = await executeSQL(
 					pool,
 					'INSERT INTO Users (Username, PasswordHash) VALUES (@username, @password)',
 					{ username: username, password: hashedPassword }
 			);
-			console.log("測試", result);
+
 			res.status(201).send('註冊成功');
 		} catch (err) {
 			console.error(err);
