@@ -40,10 +40,11 @@ module.exports = function(pool) {
 			throw err;
 		}
 	}
-// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
+  // GET 請求 - 驗證 Line ID 並返回對應的用戶資料
 	router.get('/check-line-id', async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
+			console.log("接收到", lineId);
 			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
 
 			if (result.recordset.length > 0) {
