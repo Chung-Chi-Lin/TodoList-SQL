@@ -104,20 +104,21 @@ module.exports = function(pool) {
 			const result = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", { email: email });
 
 			const userFromDb = result.recordset[0];
+			console.log("測試", userFromDb);
 			if (userFromDb) {
 				const isValid = await bcrypt.compare(password, userFromDb.PasswordHash);
 				if (isValid) {
 					// 在令牌中加入用户 ID 和 用戶類型
 					const token = jwt.sign(
 							{
-								UserId: userFromDb.UserId,
+								userName: userFromDb.userName,
 								email: email,
 								userType: userFromDb.userType // 假设您的数据库中有这个字段
 							},
 							process.env.JWT_SECRET,
 							{ expiresIn: '1d' }
 					);
-					console.log(userFromDb)
+
 					// 返回 token 和必要的用户信息
 					res.json({
 						token: token,
