@@ -44,7 +44,6 @@ module.exports = function(pool) {
 	router.get('/check-line-id', async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
-			console.log("接收到", lineId);
 			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
 
 			if (result.recordset.length > 0) {
@@ -52,8 +51,8 @@ module.exports = function(pool) {
 				const userData = result.recordset[0];
 				res.json({
 					found: true,
-					message: 'Line ID 驗證成功。',
-					data: {
+					message: 'Line ID 驗證成功',
+					userInfo: {
 						lineUserId: userData.line_user_id,
 						lineUserName: userData.line_user_name,
 						lineUserType: userData.line_user_type,
@@ -62,14 +61,40 @@ module.exports = function(pool) {
 				});
 			} else {
 				// 沒找到匹配的 Line ID
-				res.json({ found: false, message: 'Line ID 不存在。' });
+				res.json({ found: false, message: 'Line ID 不存在' });
 			}
 		} catch (err) {
 			console.error('SQL Error:', err);
 			res.status(500).send('伺服器錯誤');
 		}
 	});
+	// 註冊
+	router.post('/register', async (req, res) => {
+		try {
+			const { email, name, userType, password } = req.body;
 
+			// 驗證輸入（這裡只是示例，您需要根據您的實際要求進行擴展）
+			if (!email || !name || !userType || !password) {
+				return res.status(400).json({ message: '缺少必要的註冊資訊' });
+			}
+
+			// 雜湊密碼
+			const passwordHash = await bcrypt.hash(password, 10);
+
+			// 儲存用戶資料
+			const result = await executeSQL(pool,
+					'INSERT INTO users_by_pick_time (user_name, password_hash, Email, user_type) VALUES (@name, @passwordHash, @email, @userType)',
+					{ name, passwordHash, email, userType }
+			);
+
+			// 如果 result 顯示資料插入成功，返回成功訊息
+			res.status(201).json({ message: '註冊成功' });
+		} catch (err) {
+			// 如果捕獲到錯誤，返回錯誤訊息
+			console.error('註冊錯誤:', err);
+			res.status(500).json({ message: '註冊過程中出現錯誤' });
+		}
+	});
 	// ==============================================================================================================
   // 測試: GET 請求 - 獲取所有待辦事項
 	router.get('/', (req, res) => {
