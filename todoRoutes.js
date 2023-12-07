@@ -100,43 +100,42 @@ module.exports = function(pool) {
 		try {
 			const { email, password } = req.body;
 
-			// 从数据库中查找匹配的 Email
 			const result = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", { email: email });
 
 			const userFromDb = result.recordset[0];
 			console.log("測試", userFromDb);
-		// 	if (userFromDb) {
-		// 		const isValid = await bcrypt.compare(password, userFromDb.PasswordHash);
-		// 		if (isValid) {
-		// 			// 在令牌中加入用户 ID 和 用戶類型
-		// 			const token = jwt.sign(
-		// 					{
-		// 						userName: userFromDb.userName,
-		// 						email: email,
-		// 						userType: userFromDb.userType // 假设您的数据库中有这个字段
-		// 					},
-		// 					process.env.JWT_SECRET,
-		// 					{ expiresIn: '1d' }
-		// 			);
-		//
-		// 			// 返回 token 和必要的用户信息
-		// 			res.json({
-		// 				token: token,
-		// 				userInfo: {
-		// 					userName: userFromDb.userName,
-		// 					email: email,
-		// 					userType: userFromDb.userType // 同上
-		// 				}
-		// 			});
-		// 		} else {
-		// 			res.status(401).send('認證失敗');
-		// 		}
-		// 	} else {
-		// 		res.status(400).send('用戶不存在');
-		// 	}
-		// } catch (err) {
-		// 	res.status(500).send(err.message);
-		// }
+			// if (userFromDb) {
+			// 	const isValid = await bcrypt.compare(password, userFromDb.PasswordHash);
+			// 	if (isValid) {
+			// 		// 在令牌中加入用户 ID 和 用戶類型
+			// 		const token = jwt.sign(
+			// 				{
+			// 					userName: userFromDb.userName,
+			// 					email: email,
+			// 					userType: userFromDb.userType // 假设您的数据库中有这个字段
+			// 				},
+			// 				process.env.JWT_SECRET,
+			// 				{ expiresIn: '1d' }
+			// 		);
+			//
+			// 		// 返回 token 和必要的用户信息
+			// 		res.json({
+			// 			token: token,
+			// 			userInfo: {
+			// 				userName: userFromDb.userName,
+			// 				email: email,
+			// 				userType: userFromDb.userType // 同上
+			// 			}
+			// 		});
+			// 	} else {
+			// 		res.status(401).send('認證失敗');
+			// 	}
+			// } else {
+			// 	res.status(400).send('用戶不存在');
+			// }
+		} catch (err) {
+			res.status(500).send(err.message);
+		}
 	});
 
 	// ==============================================================================================================
