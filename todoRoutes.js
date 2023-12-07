@@ -101,7 +101,7 @@ module.exports = function(pool) {
 			const { email, password } = req.body;
 
 			// 从数据库中查找匹配的 Email
-			const result = await executeSQL(pool, "SELECT * FROM Users WHERE Email = @Email", { Email: email });
+			const result = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE Email = @Email", { Email: email });
 
 			const userFromDb = result.recordset[0];
 			if (userFromDb) {
@@ -117,7 +117,7 @@ module.exports = function(pool) {
 							process.env.JWT_SECRET,
 							{ expiresIn: '1d' }
 					);
-
+					console.log(userFromDb)
 					// 返回 token 和必要的用户信息
 					res.json({
 						token: token,
