@@ -2,10 +2,10 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-module.exports = function(pool) {
+module.exports = function (pool) {
 	const router = express.Router();
 
-  // 驗證token函式
+	// 驗證token函式
 	function authenticateToken(req, res, next) {
 		const authHeader = req.headers['authorization'];
 
@@ -40,11 +40,12 @@ module.exports = function(pool) {
 			throw err;
 		}
 	}
-  // GET 請求 - 驗證 Line ID 並返回對應的用戶資料
+
+	// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
 	router.get('/check-line-id', async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
-			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
+			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", {line_user_id: lineId});
 
 			if (result.recordset.length > 0) {
 				// 找到匹配的 Line ID，返回相關資料
@@ -61,7 +62,7 @@ module.exports = function(pool) {
 				});
 			} else {
 				// 沒找到匹配的 Line ID
-				res.json({ found: false, message: 'Line ID 不存在' });
+				res.json({found: false, message: 'Line ID 不存在'});
 			}
 		} catch (err) {
 			console.error('SQL Error:', err);
@@ -71,11 +72,11 @@ module.exports = function(pool) {
 	// 註冊
 	router.post('/users/register', async (req, res) => {
 		try {
-			const { email, name, userType, password } = req.body;
+			const {email, name, userType, password, lineId} = req.body;
 
 			// 驗證輸入（這裡只是示例，您需要根據您的實際要求進行擴展）
-			if (!email || !name || !userType || !password) {
-				return res.status(400).json({ message: '缺少必要的註冊資訊' });
+			if (!email || !name || !userType || !password || !lineId) {
+				return res.status(400).json({message: '缺少必要的註冊資訊'});
 			}
 
 			// 雜湊密碼
@@ -83,24 +84,24 @@ module.exports = function(pool) {
 
 			// 儲存用戶資料
 			const result = await executeSQL(pool,
-					'INSERT INTO users_by_pick_time (user_name, password_hash, Email, user_type) VALUES (@name, @passwordHash, @email, @userType)',
-					{ name, passwordHash, email, userType }
+					'INSERT INTO users_by_pick_time (user_name, password_hash, Email, user_type, line_id) VALUES (@name, @passwordHash, @email, @userType, @lineId)',
+					{name, passwordHash, email, userType, lineId}
 			);
 
 			// 如果 result 顯示資料插入成功，返回成功訊息
-			res.status(201).json({ message: '註冊成功' });
+			res.status(201).json({message: '註冊成功'});
 		} catch (err) {
 			// 如果捕獲到錯誤，返回錯誤訊息
 			console.error('註冊錯誤:', err);
-			res.status(500).json({ message: '註冊過程中出現錯誤' });
+			res.status(500).json({message: '註冊過程中出現錯誤'});
 		}
 	});
 	// 登入
 	router.post('/users/login', async (req, res) => {
 		try {
-			const { email, password } = req.body;
+			const {email, password} = req.body;
 
-			const result = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", { email: email });
+			const result = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", {email: email});
 
 			const userFromDb = result.recordset[0];
 
@@ -112,10 +113,10 @@ module.exports = function(pool) {
 							{
 								userName: userFromDb.user_name,
 								email: email,
-								userType: userFromDb.user_type // 假设您的数据库中有这个字段
+								userType: userFromDb.user_type
 							},
 							process.env.JWT_SECRET,
-							{ expiresIn: '1d' }
+							{expiresIn: '1d'}
 					);
 					// 返回 token 和必要的用户信息
 					res.json({
@@ -145,10 +146,43 @@ module.exports = function(pool) {
 		// 例如，將令牌添加到一個撤銷列表中
 
 		// 回應客戶端登出成功
-		res.status(200).json({ message: '成功登出' });
+		res.status(200).json({message: '成功登出'});
 	});
+	// 取得對應費用
+	router.post('/fare/get_fare', authenticateToken, async (req, res) => {
+		try {
+			const { email } = req.body;
+
+			// 從 users_by_pick_time 表中查找對應的 email
+			let result = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @Email", {Email: email});
+
+			if (result.recordset.length > 0) {
+				const { line_id } = result.recordset[0];
+				// const line_id = "U584d30a02b64fef171c8a137744aa09e";
+				// 分別查詢 fare 表和 fare_count 表
+				const fareResult = await executeSQL(pool, "SELECT * FROM fare WHERE line_user_id = @line_id AND update_time >= DATEADD(month, DATEDIFF(month, 0, GETDATE()) - 1, 0)", { line_id: line_id });
+				const fareCountResult = await executeSQL(pool, "SELECT * FROM fare_count WHERE line_user_id = @line_id AND update_time >= DATEADD(month, DATEDIFF(month, 0, GETDATE()) - 1, 0)", { line_id: line_id });
+
+				// 返回最終結果
+				res.json({
+					found: true,
+					message: '資料查找成功',
+					fareData: {
+						fare: fareResult.recordset,
+						fareCount: fareCountResult.recordset
+					}
+				});
+			} else {
+				res.json({ found: false, message: 'Email 不存在或未綁定 Line ID' });
+			}
+		} catch (err) {
+			console.error('SQL Error:', err);
+			res.status(500).send('伺服器錯誤');
+		}
+	});
+
 	// ==============================================================================================================
-  // 測試: GET 請求 - 獲取所有待辦事項
+	// 測試: GET 請求 - 獲取所有待辦事項
 	// router.get('/', (req, res) => {
 	// 	res.json({ message: '獲取所有待辦事項' });
 	// });
@@ -195,7 +229,7 @@ module.exports = function(pool) {
 	// 	}
 	// });
 	//
-  // // GET 請求 - 獲取當前用戶的所有待辦事項
+	// // GET 請求 - 獲取當前用戶的所有待辦事項
 	// router.get('/todos', authenticateToken, async (req, res) => {
 	// 	try {
 	// 		// 確保連接池已連接
@@ -214,7 +248,7 @@ module.exports = function(pool) {
 	// 	}
 	// });
 	//
-  // // POST 請求 - 創建新的待辦事項
+	// // POST 請求 - 創建新的待辦事項
 	// router.post('/todos', authenticateToken, async (req, res) => {
 	// 	try {
 	// 		const { title, description, due_date } = req.body;
@@ -253,7 +287,7 @@ module.exports = function(pool) {
 	// 	}
 	// });
 	//
-  // // PUT 請求 - 更新特定的待辦事項
+	// // PUT 請求 - 更新特定的待辦事項
 	// router.put('/todos/:id', authenticateToken, async (req, res) => {
 	// 	try {
 	//
@@ -266,9 +300,9 @@ module.exports = function(pool) {
 	// 		const updateResult = await executeSQL(
 	// 				pool,
 	// 				`UPDATE TodoTable
-  //            SET Title = @Title, Description = @Description, DueDate = @DueDate,
-  //                Completed = @Completed, UpdateTime = @UpdateTime
-  //            WHERE id = @Id AND UserId = @UserId`,
+	//            SET Title = @Title, Description = @Description, DueDate = @DueDate,
+	//                Completed = @Completed, UpdateTime = @UpdateTime
+	//            WHERE id = @Id AND UserId = @UserId`,
 	// 				{
 	// 					Id: id,
 	// 					UserId: req.user.UserId,
@@ -290,7 +324,7 @@ module.exports = function(pool) {
 	// 	}
 	// });
 	//
-  // // DELETE 請求 - 刪除特定的待辦事項
+	// // DELETE 請求 - 刪除特定的待辦事項
 	// router.delete('/todos/:id', authenticateToken, async (req, res) => {
 	// 	try {
 	// 		const { id } = req.params;
