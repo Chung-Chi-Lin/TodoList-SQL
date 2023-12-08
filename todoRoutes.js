@@ -69,7 +69,7 @@ module.exports = function(pool) {
 		}
 	});
 	// 註冊
-	router.post('/register', async (req, res) => {
+	router.post('/users/register', async (req, res) => {
 		try {
 			const { email, name, userType, password } = req.body;
 
@@ -96,7 +96,7 @@ module.exports = function(pool) {
 		}
 	});
 	// 登入
-	router.post('/login', async (req, res) => {
+	router.post('/users/login', async (req, res) => {
 		try {
 			const { email, password } = req.body;
 
@@ -117,7 +117,6 @@ module.exports = function(pool) {
 							process.env.JWT_SECRET,
 							{ expiresIn: '1d' }
 					);
-
 					// 返回 token 和必要的用户信息
 					res.json({
 						token: token,
@@ -137,7 +136,17 @@ module.exports = function(pool) {
 			res.status(500).send(err.message);
 		}
 	});
+	// 登出
+	router.post('/users/sign_out', (req, res) => {
+		// 從請求中獲取令牌
+		const token = req.headers.authorization.split(' ')[1];
 
+		// 在這裡，您可以添加任何需要的撤銷邏輯
+		// 例如，將令牌添加到一個撤銷列表中
+
+		// 回應客戶端登出成功
+		res.status(200).json({ message: '成功登出' });
+	});
 	// ==============================================================================================================
   // 測試: GET 請求 - 獲取所有待辦事項
 	// router.get('/', (req, res) => {
