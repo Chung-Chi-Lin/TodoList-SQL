@@ -1,18 +1,20 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
+const sql = require('mssql');
 const app = express();
 // 先把mssql刪除之後在加回來
 // 连接池配置
 const dbConfig = {
-	host: process.env.DB_HOST,
 	user: process.env.DB_USER,
 	password: process.env.DB_PASSWORD,
+	server: process.env.DB_HOST,
 	database: process.env.DB_DATABASE,
-	waitForConnections: true,
-	connectionLimit: 10,
-	queueLimit: 0
+	port: 3306,
+	options: {
+		encrypt: false,
+		trustServerCertificate: true
+	}
 };
 // const dbConfig = {
 // 	user: process.env.DB_USER,
@@ -27,9 +29,18 @@ const dbConfig = {
 // };
 
 // 创建连接池
-const pool = mysql.createPool(dbConfig);
+const pool = new sql.ConnectionPool(dbConfig);
+const poolConnect = pool.connect();
+
+poolConnect.then(() => {
+	console.log('Connected to the database.');
+}).catch((err) => {
+	console.error('Database connection error:', err);
+});
+
+// 中间件
 app.use(express.json()); // 解析 JSON 格式的请求体
-app.use(cors());
+app.use(cors()); // 启用 CORS
 
 // 导入 todoRoutes 并传递连接池
 const todoRoutes = require('./todoRoutes')(pool);
