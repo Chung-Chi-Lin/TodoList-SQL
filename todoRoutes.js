@@ -107,7 +107,7 @@ module.exports = function (pool) {
 		// Add token to a revoked list if needed here
 		res.status(200).json({ message: '成功登出' });
 	});
-	// 取得對應費用
+	// 乘客-取得乘客費用
 	router.post('/fare/get_fare', authenticateToken, async (req, res) => {
 		try {
 			const { email } = req.user; // 注意，這裡我們使用 req.user.email 而不是 req.body.email，因為 authenticateToken 中間件應該已經提供了驗證過的使用者資料。
@@ -116,8 +116,7 @@ module.exports = function (pool) {
 			let result = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
 
 			if (result.length > 0) {
-				// const { line_id } = result[0];
-				const line_id = "U584d30a02b64fef171c8a137744aa09e";
+				const { line_id } = result[0];
 
 				// 使用 MySQL 的日期函數來獲取當月及過去一個月的數據
 				const fareResult = await executeSQL(pool, `
@@ -159,7 +158,38 @@ module.exports = function (pool) {
 			res.status(500).send('伺服器錯誤');
 		}
 	});
-	// 加入匯款紀錄
+	async function getMonthlyFare(passenger, isCurrentMonth) {
+		let fareResult, fareCountResult;
+		let monthCondition = isCurrentMonth ? 'MONTH(CURRENT_DATE)' : 'MONTH(CURRENT_DATE - INTERVAL 1 MONTH)';
+		let yearCondition = isCurrentMonth ? 'YEAR(CURRENT_DATE)' : 'YEAR(CURRENT_DATE - INTERVAL 1 MONTH)';
+
+		fareResult = await executeSQL(pool, `
+        SELECT user_fare, update_time FROM fare 
+        WHERE line_user_id = ? 
+        AND MONTH(update_time) = ${monthCondition} 
+        AND YEAR(update_time) = ${yearCondition};
+    `, [passenger.line_user_id]);
+
+		fareCountResult = await executeSQL(pool, `
+        SELECT * FROM fare_count 
+        WHERE line_user_id = ? 
+        AND MONTH(update_time) = ${monthCondition} 
+        AND YEAR(update_time) = ${yearCondition};
+    `, [passenger.line_user_id]);
+
+		return {
+			name: passenger.line_user_name,
+			fare: fareResult.length > 0 ? fareResult[0].user_fare : null,
+			date: fareResult.length > 0 ? fareResult[0].update_time : null,
+			fareCount: fareCountResult.map(fareCount => ({
+				id: fareCount.id,
+				userFareCount: fareCount.user_fare_count,
+				userRemark: fareCount.user_remark,
+				date: fareCount.update_time
+			}))
+		};
+	};
+	// 乘客-加入匯款紀錄
 	router.post('/fare/add_fare', authenticateToken, async (req, res) => {
 		try {
 			const { email, userFare } = req.body;
@@ -173,8 +203,7 @@ module.exports = function (pool) {
 			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
 
 			if (userResult.length > 0) {
-				// const line_id = userResult[0].line_id;
-				const line_id = "U584d30a02b64fef171c8a137744aa09e";
+				const line_id = userResult[0].line_id;
 				// 檢查當前月份是否已有記錄
 				const currentMonth = new Date().toISOString().slice(0, 7); // 格式為 'YYYY-MM'
 				const fareResult = await executeSQL(pool, "SELECT * FROM fare WHERE line_user_id = ? AND DATE_FORMAT(update_time, '%Y-%m') = ?", [line_id, currentMonth]);
@@ -196,62 +225,72 @@ module.exports = function (pool) {
 			res.status(500).json({ message: '處理匯款記錄過程中出現錯誤' });
 		}
 	});
-	// 獲取開車時間
+	// 乘客-獲取開車時間
 	router.get('/driver_dates', authenticateToken, async (req, res) => {
 		try {
 			const { email } = req.user;
 			const month = req.query.month; // 從查詢參數中獲取月份類型
 
 			// 從 users_by_pick_time 表中查找對應的 email
-			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
-
-			// 初始化返回結果
-			const response = {
-				drive: null,
-				notDrive: null
-			};
-
+			const userResult = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = ?", [email]);
 			if (userResult.length > 0) {
 				const line_id = userResult[0].line_id;
-				const currentDate = new Date();
-				let queryDate = currentDate;
 
-				// 根據查詢參數調整查詢日期
-				if (month === 'last') {
-					// 如果是上一個月，將日期設為上個月的第一天
-					queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+				// 初始化返回結果
+				const response = {
+					drive: null,
+					notDrive: null
+				};
+
+				const driverResult = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = ?", [line_id]);
+
+				if (driverResult[0]) {
+					// console.log(userResult[0].user_type === '乘客')
+					let line_user_id = '';
+					if (driverResult[0].line_user_driver) {
+						line_user_id = driverResult[0].line_user_driver;
+					} else {
+						line_user_id = driverResult[0].line_user_id;
+					}
+					const currentDate = new Date();
+					let queryDate = currentDate;
+
+					// 根據查詢參數調整查詢日期
+					if (month === 'last') {
+						// 如果是上一個月，將日期設為上個月的第一天
+						queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+					}
+
+					const queryDateString = queryDate.toISOString().slice(0, 7);
+
+					const query = `
+									SELECT * FROM driver_dates
+									WHERE line_user_driver = ?
+									AND start_date BETWEEN ? AND LAST_DAY(?)
+							`;
+
+					const params = [line_user_id, `${queryDateString}-01`, `${queryDateString}-01`];
+					const driverDatesResult = await executeSQL(pool, query, params);
+
+					// 分類並處理結果
+					if (driverDatesResult.length > 0) {
+						response.drive = driverDatesResult.filter(record => record.reverse_type === 1);
+						response.notDrive = driverDatesResult.filter(record => record.reverse_type === 0);
+
+						response.drive = response.drive.length > 0 ? response.drive : null;
+						response.notDrive = response.notDrive.length > 0 ? response.notDrive : null;
+					}
+				} else {
+					response.message = '找不到對應的用戶';
 				}
-
-				const queryDateString = queryDate.toISOString().slice(0, 7);
-
-				const query = `
-                SELECT * FROM driver_dates
-                WHERE line_user_driver = ?
-                AND start_date BETWEEN ? AND LAST_DAY(?)
-            `;
-
-				const params = [line_id, `${queryDateString}-01`, `${queryDateString}-01`];
-				const driverDatesResult = await executeSQL(pool, query, params);
-
-				// 分類並處理結果
-				if (driverDatesResult.length > 0) {
-					response.drive = driverDatesResult.filter(record => record.reverse_type === 1);
-					response.notDrive = driverDatesResult.filter(record => record.reverse_type === 0);
-
-					response.drive = response.drive.length > 0 ? response.drive : null;
-					response.notDrive = response.notDrive.length > 0 ? response.notDrive : null;
-				}
-			} else {
-				response.message = '找不到對應的用戶';
+				res.json(response);
 			}
-
-			res.json(response);
 		} catch (err) {
 			console.error('查詢 driver_dates 錯誤:', err);
 			res.status(500).json({ message: '查詢 driver_dates 過程中出現錯誤' });
 		}
 	});
-	// 獲取搭乘時間
+	// 乘客-獲取搭乘時間
 	router.get('/passenger_dates', authenticateToken, async (req, res) => {
 		try {
 			const { email } = req.user;
@@ -306,34 +345,68 @@ module.exports = function (pool) {
 			res.status(500).json({ message: '查詢 driver_dates 過程中出現錯誤' });
 		}
 	});
-	// 乘客-搭乘
-	router.post('/reserve', authenticateToken, async (req, res) => {
+	// 司機-預約開車
+	router.post('/driver_reserve', authenticateToken, async (req, res) => {
 		try {
 			const { email } = req.user;
-			const { start_date, end_date, reverse_type, note } = req.body;
-      // 從 users_by_pick_time 表中查找對應的 email
+			const { start_date, end_date, reverse_type, note, pass_limit } = req.body;
 			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
 			const line_user_id = userResult[0].line_id;
-			// 確保所有必要的數據都已提供
+
 			if (!line_user_id || !start_date || !end_date || reverse_type === undefined) {
 				return res.status(400).json({ message: '缺少必要的預約資訊' });
 			}
 
-			// 格式化日期
-			const formattedStartDate = new Date(start_date).toISOString().slice(0, 10); // YYYY-MM-DD
-			const formattedEndDate = new Date(end_date).toISOString().slice(0, 10); // YYYY-MM-DD
+			const currentMonth = new Date(start_date).toISOString().slice(0, 7);
 
-			// 插入數據庫操作
-			const insertQuery = `
-            INSERT INTO passenger_dates (line_user_id, start_date, end_date, reverse_type, note)
-            VALUES (?, ?, ?, ?, ?)
-        `;
-			const insertResult = await executeSQL(pool, insertQuery, [line_user_id, formattedStartDate, formattedEndDate, reverse_type, note]);
-			// 插入成功後的處理
-			if (insertResult) {
-				res.status(201).json({ message: '預約已成功提交' });
-			} else {
-				res.status(500).json({ message: '無法創建預約' });
+			// 檢查reverse_type是1的情況
+			if (reverse_type === 1) {
+				const checkQuery = `
+        SELECT id FROM driver_dates 
+        WHERE line_user_driver = ? AND reverse_type = 1 
+        AND start_date LIKE ?
+      `;
+				const checkResult = await executeSQL(pool, checkQuery, [line_user_id, `${currentMonth}%`]);
+
+				if (checkResult.length > 0) {
+					const updateId = checkResult[0].id;
+
+					await executeSQL(pool, `
+          UPDATE driver_dates 
+          SET start_date = ?, end_date = ?, reverse_type = ?, note = ?, pass_limit = ?
+          WHERE id = ?
+        `, [start_date, end_date, reverse_type, note, pass_limit, updateId]);
+					res.json({ message: '當月搭乘時間已更新', id: updateId });
+				} else {
+					const insertResult = await executeSQL(pool, `
+          INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
+          VALUES (?, ?, ?, ?, ?)
+        `, [line_user_id, start_date, end_date, reverse_type, note]);
+					res.json({ message: '新搭乘時間已設定', id: insertResult.insertId });
+				}
+			} else if (reverse_type === 0) {
+				// 查詢與新儲存時間範圍重疊的現有記錄
+				const checkQuery = `
+				SELECT id FROM driver_dates 
+				WHERE line_user_driver = ? AND reverse_type = 0 
+				AND NOT (end_date < ? OR start_date > ?)
+			`;
+			const checkResult = await executeSQL(pool, checkQuery, [line_user_id, start_date, end_date]);
+
+			// 刪除所有與新儲存時間範圍重疊的記錄
+			if (checkResult.length > 0) {
+				for (const record of checkResult) {
+					await executeSQL(pool, `DELETE FROM driver_dates WHERE id = ?`, [record.id]);
+				}
+			}
+
+			// 新增新的不搭乘時間記錄
+				const insertResult = await executeSQL(pool, `
+        INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
+        VALUES (?, ?, ?, ?, ?)
+      `, [line_user_id, start_date, end_date, reverse_type, note]);
+
+				res.json({ message: '已新增不搭乘時間', id: insertResult.insertId });
 			}
 		} catch (err) {
 			console.error('創建預約錯誤:', err);
@@ -344,18 +417,161 @@ module.exports = function (pool) {
 	router.delete('/passenger_dates/:id', authenticateToken, async (req, res) => {
 		try {
 			const { id } = req.params;
-			// 從 passenger_dates 表中刪除對應的紀錄
-			const deleteQuery = `DELETE FROM passenger_dates WHERE id = ?`;
-			const deleteResult = await executeSQL(pool, deleteQuery, [id]);
-			// 刪除成功後的處理
-			if (deleteResult) {
-				res.json({ message: '預約記錄已成功刪除' });
+			// 從 fare_count 表中刪除對應的紀錄
+			const deleteQuery = `DELETE FROM fare_count WHERE id = ?`;
+			const [deleteResult] = await executeSQL(pool, deleteQuery, [id]);
+
+			// 判斷是否成功刪除
+			if (deleteResult.affectedRows > 0) {
+				res.json({ message: '費用調整記錄已成功刪除' });
 			} else {
-				res.status(404).json({ message: '未找到該預約記錄，無法刪除' });
+				res.status(404).json({ message: '未找到該費用調整記錄，無法刪除' });
 			}
 		} catch (err) {
-			console.error('刪除預約記錄錯誤:', err);
-			res.status(500).json({ message: '刪除預約記錄時發生錯誤' });
+			console.error('刪除費用調整記錄錯誤:', err);
+			res.status(500).json({ message: '刪除費用調整記錄時發生錯誤' });
+		}
+	});
+	// 司機-取得司機名下乘客費用
+	router.post('/fare/get_driver_passenger_fares', authenticateToken, async (req, res) => {
+		try {
+			const { email } = req.user;
+
+			let driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+			if (driverResult.length > 0) {
+				const { line_id } = driverResult[0];
+
+				let passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = ?", [line_id]);
+
+				let currentMonthFares = [];
+				let previousMonthFares = [];
+
+				for (const passenger of passengersResult) {
+					let currentMonthFare = await getMonthlyFare(passenger, true); // 獲取當月 fare
+					let previousMonthFare = await getMonthlyFare(passenger, false); // 獲取上月 fare
+
+					currentMonthFares.push(currentMonthFare);
+					previousMonthFares.push(previousMonthFare);
+				}
+
+				res.json({
+					found: true,
+					message: '資料查找成功',
+					passengersResult: passengersResult,
+					currentMonthFares: currentMonthFares,
+					previousMonthFares: previousMonthFares
+				});
+			} else {
+				res.status(404).json({ found: false, message: 'Email 不存在或未綁定 Line ID' });
+			}
+		} catch (err) {
+			console.error('SQL Error:', err);
+			res.status(500).send('伺服器錯誤');
+		}
+	});
+	// 司機-刪除費用調整記錄
+	router.delete('/fare_count/:id', authenticateToken, async (req, res) => {
+		try {
+			const { id } = req.params;
+			// 從 fare_count 表中刪除對應的紀錄
+			const deleteQuery = `DELETE FROM fare_count WHERE id = ?`;
+			const deleteResult = await executeSQL(pool, deleteQuery, [id]);
+
+			// 判斷是否成功刪除
+			if (deleteResult) {
+				res.json({ message: '費用調整記錄已成功刪除' });
+			} else {
+				res.status(404).json({ message: '未找到該費用調整記錄，無法刪除' });
+			}
+		} catch (err) {
+			console.error('刪除費用調整記錄錯誤:', err);
+			res.status(500).json({ message: '刪除費用調整記錄時發生錯誤' });
+		}
+	});
+	// 司機-新增搭乘費用紀錄
+	router.post('/fare/add_fare_count', authenticateToken, async (req, res) => {
+		try {
+			const { userId, userRemark, fareAmount, date } = req.body;
+
+			// 向 fare_count 表中插入數據
+			const insertQuery = `INSERT INTO fare_count (line_user_id, user_fare_count, user_remark, update_time) VALUES (?, ?, ?, ?)`;
+			await executeSQL(pool, insertQuery, [userId, fareAmount, userRemark, date]);
+
+			res.json({ message: '搭乘費用紀錄已成功新增' });
+		} catch (err) {
+			console.error('新增搭乘費用紀錄錯誤:', err);
+			res.status(500).json({ message: '新增搭乘費用紀錄時發生錯誤' });
+		}
+	});
+	// 司機-刪除開車紀錄
+	router.delete('/driver_dates/:id', authenticateToken, async (req, res) => {
+		try {
+			const { id } = req.params;
+			// 從 driver_dates 表中刪除對應的紀錄
+			const deleteQuery = `DELETE FROM driver_dates WHERE id = ?`;
+			const deleteResult = await executeSQL(pool, deleteQuery, [id]);
+
+			// 判斷是否成功刪除
+			if (deleteResult.affectedRows > 0) {
+				res.json({ message: '登記時間記錄已成功刪除' });
+			} else {
+				res.status(404).json({ message: '未找到該登記時間記錄，無法刪除' });
+			}
+		} catch (err) {
+			console.error('刪除登記時間記錄錯誤:', err);
+			res.status(500).json({ message: '刪除登記時間記錄時發生錯誤' });
+		}
+	});
+	// 司機-取得名下乘客搭乘紀錄
+	router.get('/driver_passenger_dates', authenticateToken, async (req, res) => {
+		try {
+			const { email } = req.user;
+
+			// 從 users_by_pick_time 表中查找對應的 email
+			const driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+			if (driverResult.length > 0) {
+				const line_user_driver = driverResult[0].line_id;
+
+				// 查找司機名下的所有乘客
+				const passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = ?", [line_user_driver]);
+
+				const passengerData = [];
+				const currentDate = new Date();
+				const currentMonth = currentDate.toISOString().slice(0, 7);
+
+				// 獲取每位乘客的搭乘時間
+				for (const passenger of passengersResult) {
+					const query = `
+                SELECT * FROM passenger_dates
+                WHERE line_user_id = ?
+                AND start_date BETWEEN ? AND LAST_DAY(?)
+            `;
+					const params = [passenger.line_user_id, `${currentMonth}-01`, `${currentMonth}-01`];
+					const datesResult = await executeSQL(pool, query, params);
+
+					// 分類搭乘和不搭乘的記錄
+					const takeRide = datesResult.filter(record => record.reverse_type === 1);
+					const notTakeRide = datesResult.filter(record => record.reverse_type === 0);
+
+					// 加入到結果中
+					passengerData.push({
+						name: passenger.line_user_name,
+						takeRide: takeRide.length > 0 ? takeRide : null,
+						notTakeRide: notTakeRide.length > 0 ? notTakeRide : null
+					});
+				}
+
+				res.json({
+					found: true,
+					message: '資料查找成功',
+					passengerData: passengerData
+				});
+			} else {
+				res.status(404).json({ found: false, message: 'Email 不存在或未綁定 Line ID' });
+			}
+		} catch (err) {
+			console.error('查詢司機名下乘客搭乘時間錯誤:', err);
+			res.status(500).json({ message: '查詢過程中出現錯誤' });
 		}
 	});
 	return router;

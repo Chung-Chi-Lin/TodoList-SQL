@@ -21,14 +21,13 @@ const dbConfig = {
 // 	database: process.env.DB_DATABASE,
 // 	port: 1433,
 // 	options: {
-// 		encrypt: true, // 对于 Azure 必须启用加密
-// 		trustServerCertificate: false // 用于本地开发
+// 		encrypt: true, // 對於 Azure 必須啟用加密
+// 		trustServerCertificate: false // 用於本地開發
 // 	}
 // };
 
-// 创建连接池
 const pool = mysql.createPool(dbConfig);
-app.use(express.json()); // 解析 JSON 格式的请求体
+app.use(express.json()); // 解析 JSON 格式
 app.use(cors());
 
 // 导入 todoRoutes 并传递连接池
@@ -48,4 +47,4 @@ app.listen(PORT, () => {
 	console.log(`Server is running on port ${PORT}`);
 });
 
-module.exports = app; // 导出 app 以便在其他文件中使用
+module.exports = app; // 導出 app 以便在其他文件中使用
