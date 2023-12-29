@@ -40,7 +40,7 @@ app.use(express.json()); // 解析 JSON 格式
 app.use(cors());
 
 // 导入 todoRoutes 并传递连接池
-const todoRoutes = require('./todoRoutesMySQL')(pool);
+const todoRoutes = require('./todoRoutes')(pool);
 
 // 使用 Todo 路由
 app.use('/api', todoRoutes);
