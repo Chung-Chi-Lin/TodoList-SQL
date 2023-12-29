@@ -29,36 +29,22 @@ module.exports = function (pool) {
 	// 共用的 executeSQL 函数
 	async function executeSQL(pool, query, params) {
 		try {
-			const request = pool.request();
-			for (const param in params) {
-				request.input(param, params[param]);
-			}
-			const result = await request.query(query);
-			return result;
+			const [rows, fields] = await pool.execute(query, params);
+			return rows;
 		} catch (err) {
 			console.error('SQL Error:', err);
 			throw err;
 		}
 	}
-	// async function executeSQL(pool, query, params) {
-	// 	try {
-	// 		const [rows, fields] = await pool.execute(query, params);
-	// 		return rows;
-	// 	} catch (err) {
-	// 		console.error('SQL Error:', err);
-	// 		throw err;
-	// 	}
-	// }
 
 	// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
 	router.get('/check-line-id', async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
-			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", {lineId});
-
-			if (result.recordset.length > 0) {
+			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = ?", [lineId]);
+			if (result.length > 0) {
 				// 找到匹配的 Line ID，返回相關資料
-				const userData = result.recordset[0];
+				const userData = result[0];
 				res.json({
 					found: true,
 					message: 'Line ID 驗證成功',
@@ -86,7 +72,7 @@ module.exports = function (pool) {
 				return res.status(400).json({ message: '缺少必要的註冊資訊' });
 			}
 			const passwordHash = await bcrypt.hash(password, 10);
-			const result = await executeSQL(pool, 'INSERT INTO users_by_pick_time (user_name, password_hash, email, user_type, line_id) VALUES (@user_name, @password_hash, @email, @user_type, @line_id)', { user_name: name, password_hash: passwordHash, email: email, user_type: userType, line_id: lineId });
+			const result = await executeSQL(pool, 'INSERT INTO users_by_pick_time (user_name, password_hash, email, user_type, line_id) VALUES (?, ?, ?, ?, ?)', [name, passwordHash, email, userType, lineId]);
 			res.status(201).json({ message: '註冊成功' });
 		} catch (err) {
 			console.error('註冊錯誤:', err);
@@ -97,8 +83,8 @@ module.exports = function (pool) {
 	router.post('/users/login', async (req, res) => {
 		try {
 			const { email, password } = req.body;
-			const result = await executeSQL(pool, 'SELECT * FROM users_by_pick_time WHERE email = @email', { email });
-			const userFromDb = result.recordset[0];
+			const result = await executeSQL(pool, 'SELECT * FROM users_by_pick_time WHERE email = ?', [email]);
+			const userFromDb = result[0];
 			if (userFromDb) {
 				const isValid = await bcrypt.compare(password, userFromDb.password_hash);
 
@@ -127,40 +113,41 @@ module.exports = function (pool) {
 			const { email } = req.user; // 注意，這裡我們使用 req.user.email 而不是 req.body.email，因為 authenticateToken 中間件應該已經提供了驗證過的使用者資料。
 
 			// 從 users_by_pick_time 表中查找對應的 email
-			let result = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
+			let result = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
 
-			if (result.recordset && result.recordset.length > 0) {
-				const { line_id } = result.recordset[0];
+			if (result.length > 0) {
+				const { line_id } = result[0];
 
 				// 使用 MySQL 的日期函數來獲取當月及過去一個月的數據
 				const fareResult = await executeSQL(pool, `
-						SELECT * FROM fare 
-						WHERE line_user_id = @line_user_id 
-								AND (
-										YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
-										OR 
-										(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-										 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
-								);
-				`, { line_user_id: line_id });
+					SELECT * FROM fare 
+					WHERE line_user_id = ? 
+						AND (
+							YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
+							OR 
+							(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+							 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
+						);
+				`, [line_id]);
 
 				const fareCountResult = await executeSQL(pool, `
-						SELECT * FROM fare_count 
-						WHERE line_user_id = @line_user_id  
-								AND (
-										YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
-										OR 
-										(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-										 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
-								);
-				`, { line_user_id: line_id });
+					SELECT * FROM fare_count 
+					WHERE line_user_id = ? 
+						AND (
+							YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
+							OR 
+							(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+							 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
+						);
+				`, [line_id]);
 
+				// 返回最終結果
 				res.json({
 					found: true,
 					message: '資料查找成功',
 					fareData: {
-						fare: fareResult.recordset,
-						fareCount: fareCountResult.recordset
+						fare: fareResult,
+						fareCount: fareCountResult
 					}
 				});
 			} else {
@@ -178,23 +165,23 @@ module.exports = function (pool) {
 
 		fareResult = await executeSQL(pool, `
         SELECT user_fare, update_time FROM fare 
-        WHERE line_user_id = @line_user_id 
+        WHERE line_user_id = ? 
         AND MONTH(update_time) = ${monthCondition} 
         AND YEAR(update_time) = ${yearCondition};
-    `, { line_user_id: passenger.line_user_id });
+    `, [passenger.line_user_id]);
 
 		fareCountResult = await executeSQL(pool, `
         SELECT * FROM fare_count 
-        WHERE line_user_id = @line_user_id 
+        WHERE line_user_id = ? 
         AND MONTH(update_time) = ${monthCondition} 
         AND YEAR(update_time) = ${yearCondition};
-    `, { line_user_id: passenger.line_user_id });
+    `, [passenger.line_user_id]);
 
 		return {
 			name: passenger.line_user_name,
-			fare: fareResult.recordset.length > 0 ? fareResult.recordset[0].user_fare : null,
-			date: fareResult.recordset.length > 0 ? fareResult.recordset[0].update_time : null,
-			fareCount: fareCountResult.recordset.map(fareCount => ({
+			fare: fareResult.length > 0 ? fareResult[0].user_fare : null,
+			date: fareResult.length > 0 ? fareResult[0].update_time : null,
+			fareCount: fareCountResult.map(fareCount => ({
 				id: fareCount.id,
 				userFareCount: fareCount.user_fare_count,
 				userRemark: fareCount.user_remark,
@@ -207,24 +194,27 @@ module.exports = function (pool) {
 		try {
 			const { email, userFare } = req.body;
 
+			// 檢查 email 和 userFare 是否提供
 			if (!email || !userFare) {
 				return res.status(400).json({ message: '缺少必要的資訊' });
 			}
 
-			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
-			if (userResult.recordset && userResult.recordset.length > 0) {
-				const line_id = userResult.recordset[0].line_id;
+			// 從 users_by_pick_time 表中查找對應的 email 以獲取 line_id
+			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+
+			if (userResult.length > 0) {
+				const line_id = userResult[0].line_id;
+				// 檢查當前月份是否已有記錄
 				const currentMonth = new Date().toISOString().slice(0, 7); // 格式為 'YYYY-MM'
+				const fareResult = await executeSQL(pool, "SELECT * FROM fare WHERE line_user_id = ? AND DATE_FORMAT(update_time, '%Y-%m') = ?", [line_id, currentMonth]);
 
-				const fareResult = await executeSQL(pool, "SELECT * FROM fare WHERE line_user_id = @line_user_id AND FORMAT(update_time, 'yyyy-MM') = @currentMonth", { line_user_id: line_id, currentMonth });
-
-				if (fareResult.recordset && fareResult.recordset.length > 0) {
+				if (fareResult.length > 0) {
 					// 更新現有記錄
-					await executeSQL(pool, "UPDATE fare SET user_fare = @userFare, update_time = CURRENT_TIMESTAMP WHERE line_user_id = @line_user_id AND FORMAT(update_time, 'yyyy-MM') = @currentMonth", { userFare, line_user_id: line_id, currentMonth });
+					const updateResult = await executeSQL(pool, "UPDATE fare SET user_fare = ?, update_time = CURRENT_TIMESTAMP WHERE line_user_id = ? AND DATE_FORMAT(update_time, '%Y-%m') = ?", [userFare, line_id, currentMonth]);
 					res.status(200).json({ message: '本月金額已更新' });
 				} else {
 					// 插入新記錄
-					await executeSQL(pool, "INSERT INTO fare (line_user_id, user_fare, update_time) VALUES (@line_user_id, @userFare, CURRENT_TIMESTAMP)", { line_user_id: line_id, userFare });
+					const insertResult = await executeSQL(pool, "INSERT INTO fare (line_user_id, user_fare, update_time) VALUES (?, ?, CURRENT_TIMESTAMP)", [line_id, userFare]);
 					res.status(201).json({ message: '金額已成功添加' });
 				}
 			} else {
@@ -241,37 +231,51 @@ module.exports = function (pool) {
 			const { email } = req.user;
 			const month = req.query.month; // 從查詢參數中獲取月份類型
 
-			const userResult = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", { email });
-			if (userResult.recordset && userResult.recordset.length > 0) {
-				const line_id = userResult.recordset[0].line_id;
+			// 從 users_by_pick_time 表中查找對應的 email
+			const userResult = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = ?", [email]);
+			if (userResult.length > 0) {
+				const line_id = userResult[0].line_id;
+
+				// 初始化返回結果
 				const response = {
 					drive: null,
 					notDrive: null
 				};
 
-				const driverResult = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: line_id });
+				const driverResult = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = ?", [line_id]);
 
-				if (driverResult.recordset && driverResult.recordset[0]) {
-					let line_user_id = driverResult.recordset[0].line_user_driver || driverResult.recordset[0].line_user_id;
+				if (driverResult[0]) {
+					// console.log(userResult[0].user_type === '乘客')
+					let line_user_id = '';
+					if (driverResult[0].line_user_driver) {
+						line_user_id = driverResult[0].line_user_driver;
+					} else {
+						line_user_id = driverResult[0].line_user_id;
+					}
 					const currentDate = new Date();
 					let queryDate = currentDate;
 
+					// 根據查詢參數調整查詢日期
 					if (month === 'last') {
+						// 如果是上一個月，將日期設為上個月的第一天
 						queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
 					}
 
 					const queryDateString = queryDate.toISOString().slice(0, 7);
-					const params = { line_user_driver: line_user_id, queryDate: `${queryDateString}-01` };
-					const query = `
-                    SELECT * FROM driver_dates
-                    WHERE line_user_driver = @line_user_driver
-                    AND start_date BETWEEN @queryDate AND EOMONTH(@queryDate)
-                `;
 
+					const query = `
+									SELECT * FROM driver_dates
+									WHERE line_user_driver = ?
+									AND start_date BETWEEN ? AND LAST_DAY(?)
+							`;
+
+					const params = [line_user_id, `${queryDateString}-01`, `${queryDateString}-01`];
 					const driverDatesResult = await executeSQL(pool, query, params);
-					if (driverDatesResult.recordset && driverDatesResult.recordset.length > 0) {
-						response.drive = driverDatesResult.recordset.filter(record => record.reverse_type === 1);
-						response.notDrive = driverDatesResult.recordset.filter(record => record.reverse_type === 0);
+
+					// 分類並處理結果
+					if (driverDatesResult.length > 0) {
+						response.drive = driverDatesResult.filter(record => record.reverse_type === 1);
+						response.notDrive = driverDatesResult.filter(record => record.reverse_type === 0);
 
 						response.drive = response.drive.length > 0 ? response.drive : null;
 						response.notDrive = response.notDrive.length > 0 ? response.notDrive : null;
@@ -280,8 +284,6 @@ module.exports = function (pool) {
 					response.message = '找不到對應的用戶';
 				}
 				res.json(response);
-			} else {
-				res.status(404).json({ message: '找不到對應的用戶' });
 			}
 		} catch (err) {
 			console.error('查詢 driver_dates 錯誤:', err);
@@ -294,35 +296,41 @@ module.exports = function (pool) {
 			const { email } = req.user;
 			const month = req.query.month; // 從查詢參數中獲取月份類型
 
-			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
+			// 從 users_by_pick_time 表中查找對應的 email
+			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
 
+			// 初始化返回結果
 			const response = {
 				takeRide: null,
 				notTakeRide: null
 			};
 
-			if (userResult.recordset && userResult.recordset.length > 0) {
-				const line_id = userResult.recordset[0].line_id;
+			if (userResult.length > 0) {
+				const line_id = userResult[0].line_id;
 				const currentDate = new Date();
 				let queryDate = currentDate;
 
+				// 根據查詢參數調整查詢日期
 				if (month === 'last') {
+					// 如果是上一個月，將日期設為上個月的第一天
 					queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
 				}
 
 				const queryDateString = queryDate.toISOString().slice(0, 7);
-				const params = { line_user_id: line_id, queryDate: `${queryDateString}-01` };
+
 				const query = `
                 SELECT * FROM passenger_dates
-                WHERE line_user_id = @line_user_id
-                AND start_date BETWEEN @queryDate AND EOMONTH(@queryDate)
+                WHERE line_user_id = ?
+                AND start_date BETWEEN ? AND LAST_DAY(?)
             `;
 
-				const passengerDatesResult = await executeSQL(pool, query, params);
+				const params = [line_id, `${queryDateString}-01`, `${queryDateString}-01`];
+				const driverDatesResult = await executeSQL(pool, query, params);
 
-				if (passengerDatesResult.recordset && passengerDatesResult.recordset.length > 0) {
-					response.takeRide = passengerDatesResult.recordset.filter(record => record.reverse_type === 1);
-					response.notTakeRide = passengerDatesResult.recordset.filter(record => record.reverse_type === 0);
+				// 分類並處理結果
+				if (driverDatesResult.length > 0) {
+					response.takeRide = driverDatesResult.filter(record => record.reverse_type === 1);
+					response.notTakeRide = driverDatesResult.filter(record => record.reverse_type === 0);
 
 					response.takeRide = response.takeRide.length > 0 ? response.takeRide : null;
 					response.notTakeRide = response.notTakeRide.length > 0 ? response.notTakeRide : null;
@@ -333,8 +341,8 @@ module.exports = function (pool) {
 
 			res.json(response);
 		} catch (err) {
-			console.error('查詢 passenger_dates 錯誤:', err);
-			res.status(500).json({ message: '查詢 passenger_dates 過程中出現錯誤' });
+			console.error('查詢 driver_dates 錯誤:', err);
+			res.status(500).json({ message: '查詢 driver_dates 過程中出現錯誤' });
 		}
 	});
 	// 司機-預約開車
@@ -342,55 +350,63 @@ module.exports = function (pool) {
 		try {
 			const { email } = req.user;
 			const { start_date, end_date, reverse_type, note, pass_limit } = req.body;
-			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
+			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+			const line_user_id = userResult[0].line_id;
 
-			if (!userResult.recordset.length || !start_date || !end_date || reverse_type === undefined) {
+			if (!line_user_id || !start_date || !end_date || reverse_type === undefined) {
 				return res.status(400).json({ message: '缺少必要的預約資訊' });
 			}
 
-			const line_user_id = userResult.recordset[0].line_id;
 			const currentMonth = new Date(start_date).toISOString().slice(0, 7);
 
+			// 檢查reverse_type是1的情況
 			if (reverse_type === 1) {
-				const params = { line_user_driver: line_user_id, currentMonth: `${currentMonth}%` };
-				const checkResult = await executeSQL(pool, `
-                SELECT id FROM driver_dates 
-                WHERE line_user_driver = @line_user_driver AND reverse_type = 1 
-                AND start_date LIKE @currentMonth
-            `, params);
+				const checkQuery = `
+        SELECT id FROM driver_dates 
+        WHERE line_user_driver = ? AND reverse_type = 1 
+        AND start_date LIKE ?
+      `;
+				const checkResult = await executeSQL(pool, checkQuery, [line_user_id, `${currentMonth}%`]);
 
-				if (checkResult.recordset.length) {
-					const updateId = checkResult.recordset[0].id;
+				if (checkResult.length > 0) {
+					const updateId = checkResult[0].id;
+
 					await executeSQL(pool, `
-                    UPDATE driver_dates 
-                    SET start_date = @start_date, end_date = @end_date, reverse_type = @reverse_type, note = @note, pass_limit = @pass_limit
-                    WHERE id = @updateId
-                `, { start_date, end_date, reverse_type, note, pass_limit, updateId });
+          UPDATE driver_dates 
+          SET start_date = ?, end_date = ?, reverse_type = ?, note = ?, pass_limit = ?
+          WHERE id = ?
+        `, [start_date, end_date, reverse_type, note, pass_limit, updateId]);
 					res.json({ message: '當月搭乘時間已更新', id: updateId });
 				} else {
-					await executeSQL(pool, `
-                    INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
-                    VALUES (@line_user_driver, @start_date, @end_date, @reverse_type, @note)
-                `, { line_user_driver: line_user_id, start_date, end_date, reverse_type, note });
-					// 回傳新增記錄的ID
+					const insertResult = await executeSQL(pool, `
+          INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
+          VALUES (?, ?, ?, ?, ?)
+        `, [line_user_id, start_date, end_date, reverse_type, note]);
+					res.json({ message: '新搭乘時間已設定', id: insertResult.insertId });
 				}
 			} else if (reverse_type === 0) {
-				const params = { line_user_driver: line_user_id, start_date, end_date };
-				const checkResult = await executeSQL(pool, `
-                SELECT id FROM driver_dates 
-                WHERE line_user_driver = @line_user_driver AND reverse_type = 0 
-                AND NOT (end_date < @start_date OR start_date > @end_date)
-            `, params);
+				// 查詢與新儲存時間範圍重疊的現有記錄
+				const checkQuery = `
+				SELECT id FROM driver_dates 
+				WHERE line_user_driver = ? AND reverse_type = 0 
+				AND NOT (end_date < ? OR start_date > ?)
+			`;
+			const checkResult = await executeSQL(pool, checkQuery, [line_user_id, start_date, end_date]);
 
-				for (const record of checkResult.recordset) {
-					await executeSQL(pool, `DELETE FROM driver_dates WHERE id = @id`, { id: record.id });
+			// 刪除所有與新儲存時間範圍重疊的記錄
+			if (checkResult.length > 0) {
+				for (const record of checkResult) {
+					await executeSQL(pool, `DELETE FROM driver_dates WHERE id = ?`, [record.id]);
 				}
+			}
 
-				await executeSQL(pool, `
-                INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
-                VALUES (@line_user_driver, @start_date, @end_date, @reverse_type, @note)
-            `, { line_user_driver: line_user_id, start_date, end_date, reverse_type, note });
-				// 回傳新增記錄的ID
+			// 新增新的不搭乘時間記錄
+				const insertResult = await executeSQL(pool, `
+        INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
+        VALUES (?, ?, ?, ?, ?)
+      `, [line_user_id, start_date, end_date, reverse_type, note]);
+
+				res.json({ message: '已新增不搭乘時間', id: insertResult.insertId });
 			}
 		} catch (err) {
 			console.error('創建預約錯誤:', err);
@@ -401,12 +417,12 @@ module.exports = function (pool) {
 	router.delete('/passenger_dates/:id', authenticateToken, async (req, res) => {
 		try {
 			const { id } = req.params;
-
-			const deleteQuery = `DELETE FROM fare_count WHERE id = @id`;
-			const deleteResult = await executeSQL(pool, deleteQuery, { id });
+			// 從 fare_count 表中刪除對應的紀錄
+			const deleteQuery = `DELETE FROM fare_count WHERE id = ?`;
+			const [deleteResult] = await executeSQL(pool, deleteQuery, [id]);
 
 			// 判斷是否成功刪除
-			if (deleteResult.rowsAffected > 0) {
+			if (deleteResult.affectedRows > 0) {
 				res.json({ message: '費用調整記錄已成功刪除' });
 			} else {
 				res.status(404).json({ message: '未找到該費用調整記錄，無法刪除' });
@@ -421,16 +437,16 @@ module.exports = function (pool) {
 		try {
 			const { email } = req.user;
 
-			let driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
-			if (driverResult.recordset && driverResult.recordset.length > 0) {
-				const { line_id } = driverResult.recordset[0];
+			let driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+			if (driverResult.length > 0) {
+				const { line_id } = driverResult[0];
 
-				let passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = @line_user_driver", { line_user_driver: line_id });
+				let passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = ?", [line_id]);
 
 				let currentMonthFares = [];
 				let previousMonthFares = [];
 
-				for (const passenger of passengersResult.recordset) {
+				for (const passenger of passengersResult) {
 					let currentMonthFare = await getMonthlyFare(passenger, true); // 獲取當月 fare
 					let previousMonthFare = await getMonthlyFare(passenger, false); // 獲取上月 fare
 
@@ -441,7 +457,7 @@ module.exports = function (pool) {
 				res.json({
 					found: true,
 					message: '資料查找成功',
-					passengersResult: passengersResult.recordset,
+					passengersResult: passengersResult,
 					currentMonthFares: currentMonthFares,
 					previousMonthFares: previousMonthFares
 				});
@@ -458,11 +474,11 @@ module.exports = function (pool) {
 		try {
 			const { id } = req.params;
 			// 從 fare_count 表中刪除對應的紀錄
-			const deleteQuery = `DELETE FROM fare_count WHERE id = @id`;
-			const deleteResult = await executeSQL(pool, deleteQuery, { id });
+			const deleteQuery = `DELETE FROM fare_count WHERE id = ?`;
+			const deleteResult = await executeSQL(pool, deleteQuery, [id]);
 
 			// 判斷是否成功刪除
-			if (deleteResult.rowsAffected > 0) {
+			if (deleteResult) {
 				res.json({ message: '費用調整記錄已成功刪除' });
 			} else {
 				res.status(404).json({ message: '未找到該費用調整記錄，無法刪除' });
@@ -478,8 +494,8 @@ module.exports = function (pool) {
 			const { userId, userRemark, fareAmount, date } = req.body;
 
 			// 向 fare_count 表中插入數據
-			const insertQuery = `INSERT INTO fare_count (line_user_id, user_fare_count, user_remark, update_time) VALUES (@userId, @fareAmount, @userRemark, @date)`;
-			await executeSQL(pool, insertQuery, { userId, fareAmount, userRemark, date });
+			const insertQuery = `INSERT INTO fare_count (line_user_id, user_fare_count, user_remark, update_time) VALUES (?, ?, ?, ?)`;
+			await executeSQL(pool, insertQuery, [userId, fareAmount, userRemark, date]);
 
 			res.json({ message: '搭乘費用紀錄已成功新增' });
 		} catch (err) {
@@ -492,11 +508,11 @@ module.exports = function (pool) {
 		try {
 			const { id } = req.params;
 			// 從 driver_dates 表中刪除對應的紀錄
-			const deleteQuery = `DELETE FROM driver_dates WHERE id = @id`;
-			const deleteResult = await executeSQL(pool, deleteQuery, { id });
+			const deleteQuery = `DELETE FROM driver_dates WHERE id = ?`;
+			const deleteResult = await executeSQL(pool, deleteQuery, [id]);
 
 			// 判斷是否成功刪除
-			if (deleteResult.rowsAffected > 0) {
+			if (deleteResult.affectedRows > 0) {
 				res.json({ message: '登記時間記錄已成功刪除' });
 			} else {
 				res.status(404).json({ message: '未找到該登記時間記錄，無法刪除' });
@@ -511,28 +527,33 @@ module.exports = function (pool) {
 		try {
 			const { email } = req.user;
 
-			const driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
-			if (driverResult.recordset.length > 0) {
-				const line_user_driver = driverResult.recordset[0].line_id;
+			// 從 users_by_pick_time 表中查找對應的 email
+			const driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = ?", [email]);
+			if (driverResult.length > 0) {
+				const line_user_driver = driverResult[0].line_id;
 
-				const passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = @line_user_driver", { line_user_driver });
+				// 查找司機名下的所有乘客
+				const passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = ?", [line_user_driver]);
 
 				const passengerData = [];
 				const currentDate = new Date();
 				const currentMonth = currentDate.toISOString().slice(0, 7);
 
-				for (const passenger of passengersResult.recordset) {
-					const params = { line_user_id: passenger.line_user_id, currentMonth: `${currentMonth}-01` };
+				// 獲取每位乘客的搭乘時間
+				for (const passenger of passengersResult) {
 					const query = `
-                    SELECT * FROM passenger_dates
-                    WHERE line_user_id = @line_user_id
-                    AND start_date BETWEEN @currentMonth AND EOMONTH(@currentMonth)
-                `;
+                SELECT * FROM passenger_dates
+                WHERE line_user_id = ?
+                AND start_date BETWEEN ? AND LAST_DAY(?)
+            `;
+					const params = [passenger.line_user_id, `${currentMonth}-01`, `${currentMonth}-01`];
 					const datesResult = await executeSQL(pool, query, params);
 
-					const takeRide = datesResult.recordset.filter(record => record.reverse_type === 1);
-					const notTakeRide = datesResult.recordset.filter(record => record.reverse_type === 0);
+					// 分類搭乘和不搭乘的記錄
+					const takeRide = datesResult.filter(record => record.reverse_type === 1);
+					const notTakeRide = datesResult.filter(record => record.reverse_type === 0);
 
+					// 加入到結果中
 					passengerData.push({
 						name: passenger.line_user_name,
 						takeRide: takeRide.length > 0 ? takeRide : null,

@@ -1,37 +1,46 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
+const sql = require('mssql');
+// const mysql = require('mysql2/promise');
 const app = express();
 // 先把mssql刪除之後在加回來
 // 连接池配置
-const dbConfig = {
-	host: process.env.DB_HOST,
-	user: process.env.DB_USER,
-	password: process.env.DB_PASSWORD,
-	database: process.env.DB_DATABASE,
-	waitForConnections: true,
-	connectionLimit: 10,
-	queueLimit: 0
-};
 // const dbConfig = {
+// 	host: process.env.DB_HOST,
 // 	user: process.env.DB_USER,
 // 	password: process.env.DB_PASSWORD,
-// 	server: process.env.DB_HOST,
 // 	database: process.env.DB_DATABASE,
-// 	port: 1433,
-// 	options: {
-// 		encrypt: true, // 對於 Azure 必須啟用加密
-// 		trustServerCertificate: false // 用於本地開發
-// 	}
+// 	waitForConnections: true,
+// 	connectionLimit: 10,
+// 	queueLimit: 0
 // };
+const dbConfig = {
+	user: process.env.DB_USER,
+	password: process.env.DB_PASSWORD,
+	server: process.env.DB_HOST,
+	database: process.env.DB_DATABASE,
+	port: 1433,
+	options: {
+		encrypt: true, // 對於 Azure 必須啟用加密
+		trustServerCertificate: false // 用於本地開發
+	}
+};
 
-const pool = mysql.createPool(dbConfig);
+const pool = new sql.ConnectionPool(dbConfig);
+const poolConnect = pool.connect();
+
+poolConnect.then(() => {
+	console.log('Connected to the database.');
+}).catch((err) => {
+	console.error('Database connection error:', err);
+});
+
 app.use(express.json()); // 解析 JSON 格式
 app.use(cors());
 
 // 导入 todoRoutes 并传递连接池
-const todoRoutes = require('./todoRoutes')(pool);
+const todoRoutes = require('./todoRoutesMySQL')(pool);
 
 // 使用 Todo 路由
 app.use('/api', todoRoutes);
