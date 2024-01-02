@@ -23,7 +23,6 @@ const dbConfig = {
 	port: 1433,
 	options: {
 		encrypt: true, // 對於 Azure 必須啟用加密
-		trustServerCertificate: false // 用於本地開發
 	}
 };
 
