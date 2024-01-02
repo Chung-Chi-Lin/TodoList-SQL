@@ -166,8 +166,8 @@ module.exports = function (pool) {
 	async function getMonthlyFare(passenger, isCurrentMonth) {
 		let fareResult, fareCountResult;
 		const localTimeQuery = "DATEADD(HOUR, 8, GETDATE())"; // 轉換為台灣時間
-		let monthCondition = isCurrentMonth ? `MONTH(${localTimeQuery})` : `MONTH(${localTimeQuery} - INTERVAL 1 MONTH)`;
-		let yearCondition = isCurrentMonth ? `YEAR(${localTimeQuery})` : `YEAR(${localTimeQuery} - INTERVAL 1 MONTH)`;
+		let monthCondition = isCurrentMonth ? `MONTH(DATEADD(HOUR, 8, GETDATE()))` : `MONTH(DATEADD(MONTH, -1, DATEADD(HOUR, 8, GETDATE())))`;
+		let yearCondition = isCurrentMonth ? `YEAR(DATEADD(HOUR, 8, GETDATE()))` : `YEAR(DATEADD(MONTH, -1, DATEADD(HOUR, 8, GETDATE())))`;
 
 		fareResult = await executeSQL(pool, `
         SELECT user_fare, update_time FROM fare 
