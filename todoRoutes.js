@@ -40,15 +40,6 @@ module.exports = function (pool) {
 			throw err;
 		}
 	}
-	// async function executeSQL(pool, query, params) {
-	// 	try {
-	// 		const [rows, fields] = await pool.execute(query, params);
-	// 		return rows;
-	// 	} catch (err) {
-	// 		console.error('SQL Error:', err);
-	// 		throw err;
-	// 	}
-	// }
 
 	// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
 	router.get('/check-line-id', async (req, res) => {
@@ -124,7 +115,7 @@ module.exports = function (pool) {
 	// 乘客-取得乘客費用
 	router.post('/fare/get_fare', authenticateToken, async (req, res) => {
 		try {
-			const { email } = req.user; // 注意，這裡我們使用 req.user.email 而不是 req.body.email，因為 authenticateToken 中間件應該已經提供了驗證過的使用者資料。
+			const { email } = req.user;
 
 			// 從 users_by_pick_time 表中查找對應的 email
 			let result = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
@@ -132,27 +123,28 @@ module.exports = function (pool) {
 			if (result.recordset && result.recordset.length > 0) {
 				const { line_id } = result.recordset[0];
 
-				// 使用 MySQL 的日期函數來獲取當月及過去一個月的數據
+				// 使用 SQL Server 的日期函數來獲取當月及過去一個月的數據
+				const localTimeQuery = "DATEADD(HOUR, 8, GETDATE())"; // 將伺服器時間轉換為台灣時間
 				const fareResult = await executeSQL(pool, `
 						SELECT * FROM fare 
 						WHERE line_user_id = @line_user_id 
-								AND (
-										YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
-										OR 
-										(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-										 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
-								);
+										AND (
+														YEAR(update_time) > YEAR(DATEADD(MONTH, -1, ${localTimeQuery}))
+														OR 
+														(YEAR(update_time) = YEAR(DATEADD(MONTH, -1, ${localTimeQuery})) 
+														 AND MONTH(update_time) >= MONTH(DATEADD(MONTH, -1, ${localTimeQuery})))
+										);
 				`, { line_user_id: line_id });
 
 				const fareCountResult = await executeSQL(pool, `
 						SELECT * FROM fare_count 
 						WHERE line_user_id = @line_user_id  
-								AND (
-										YEAR(update_time) > YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
-										OR 
-										(YEAR(update_time) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-										 AND MONTH(update_time) >= MONTH(CURRENT_DATE - INTERVAL 1 MONTH))
-								);
+										AND (
+														YEAR(update_time) > YEAR(DATEADD(MONTH, -1, ${localTimeQuery}))
+														OR 
+														(YEAR(update_time) = YEAR(DATEADD(MONTH, -1, ${localTimeQuery})) 
+														 AND MONTH(update_time) >= MONTH(DATEADD(MONTH, -1, ${localTimeQuery})))
+										);
 				`, { line_user_id: line_id });
 
 				res.json({
@@ -173,8 +165,9 @@ module.exports = function (pool) {
 	});
 	async function getMonthlyFare(passenger, isCurrentMonth) {
 		let fareResult, fareCountResult;
-		let monthCondition = isCurrentMonth ? 'MONTH(CURRENT_DATE)' : 'MONTH(CURRENT_DATE - INTERVAL 1 MONTH)';
-		let yearCondition = isCurrentMonth ? 'YEAR(CURRENT_DATE)' : 'YEAR(CURRENT_DATE - INTERVAL 1 MONTH)';
+		const localTimeQuery = "DATEADD(HOUR, 8, GETDATE())"; // 轉換為台灣時間
+		let monthCondition = isCurrentMonth ? `MONTH(${localTimeQuery})` : `MONTH(${localTimeQuery} - INTERVAL 1 MONTH)`;
+		let yearCondition = isCurrentMonth ? `YEAR(${localTimeQuery})` : `YEAR(${localTimeQuery} - INTERVAL 1 MONTH)`;
 
 		fareResult = await executeSQL(pool, `
         SELECT user_fare, update_time FROM fare 
@@ -214,17 +207,21 @@ module.exports = function (pool) {
 			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
 			if (userResult.recordset && userResult.recordset.length > 0) {
 				const line_id = userResult.recordset[0].line_id;
-				const currentMonth = new Date().toISOString().slice(0, 7); // 格式為 'YYYY-MM'
+
+				// 獲得台灣時間的當前月份
+				const currentDateTime = new Date(); // 取得當前時間
+				currentDateTime.setHours(currentDateTime.getHours() + 8); // 轉換為台灣時間 (UTC+8)
+				const currentMonth = currentDateTime.toISOString().slice(0, 7); // 格式為 'YYYY-MM'
 
 				const fareResult = await executeSQL(pool, "SELECT * FROM fare WHERE line_user_id = @line_user_id AND FORMAT(update_time, 'yyyy-MM') = @currentMonth", { line_user_id: line_id, currentMonth });
 
 				if (fareResult.recordset && fareResult.recordset.length > 0) {
 					// 更新現有記錄
-					await executeSQL(pool, "UPDATE fare SET user_fare = @userFare, update_time = CURRENT_TIMESTAMP WHERE line_user_id = @line_user_id AND FORMAT(update_time, 'yyyy-MM') = @currentMonth", { userFare, line_user_id: line_id, currentMonth });
+					await executeSQL(pool, "UPDATE fare SET user_fare = @userFare, update_time = DATEADD(HOUR, 8, GETDATE()) WHERE line_user_id = @line_user_id AND FORMAT(update_time, 'yyyy-MM') = @currentMonth", { userFare, line_user_id: line_id, currentMonth });
 					res.status(200).json({ message: '本月金額已更新' });
 				} else {
 					// 插入新記錄
-					await executeSQL(pool, "INSERT INTO fare (line_user_id, user_fare, update_time) VALUES (@line_user_id, @userFare, CURRENT_TIMESTAMP)", { line_user_id: line_id, userFare });
+					await executeSQL(pool, "INSERT INTO fare (line_user_id, user_fare, update_time) VALUES (@line_user_id, @userFare, DATEADD(HOUR, 8, GETDATE()))", { line_user_id: line_id, userFare });
 					res.status(201).json({ message: '金額已成功添加' });
 				}
 			} else {
@@ -244,18 +241,16 @@ module.exports = function (pool) {
 			const userResult = await executeSQL(pool, "SELECT * FROM users_by_pick_time WHERE email = @email", { email });
 			if (userResult.recordset && userResult.recordset.length > 0) {
 				const line_id = userResult.recordset[0].line_id;
-				const response = {
-					drive: null,
-					notDrive: null
-				};
+				const response = { drive: null, notDrive: null };
 
 				const driverResult = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: line_id });
 
 				if (driverResult.recordset && driverResult.recordset[0]) {
 					let line_user_id = driverResult.recordset[0].line_user_driver || driverResult.recordset[0].line_user_id;
 					const currentDate = new Date();
-					let queryDate = currentDate;
+					currentDate.setHours(currentDate.getHours() + 8); // 轉換為台灣時間 (UTC+8)
 
+					let queryDate = currentDate;
 					if (month === 'last') {
 						queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
 					}
@@ -296,16 +291,14 @@ module.exports = function (pool) {
 
 			const userResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
 
-			const response = {
-				takeRide: null,
-				notTakeRide: null
-			};
+			const response = { takeRide: null, notTakeRide: null };
 
 			if (userResult.recordset && userResult.recordset.length > 0) {
 				const line_id = userResult.recordset[0].line_id;
 				const currentDate = new Date();
-				let queryDate = currentDate;
+				currentDate.setHours(currentDate.getHours() + 8); // 轉換為台灣時間 (UTC+8)
 
+				let queryDate = currentDate;
 				if (month === 'last') {
 					queryDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
 				}
@@ -507,6 +500,7 @@ module.exports = function (pool) {
 		}
 	});
 	// 司機-取得名下乘客搭乘紀錄
+	// 司機-取得名下乘客搭乘紀錄
 	router.get('/driver_passenger_dates', authenticateToken, async (req, res) => {
 		try {
 			const { email } = req.user;
@@ -514,11 +508,11 @@ module.exports = function (pool) {
 			const driverResult = await executeSQL(pool, "SELECT line_id FROM users_by_pick_time WHERE email = @email", { email });
 			if (driverResult.recordset.length > 0) {
 				const line_user_driver = driverResult.recordset[0].line_id;
-
 				const passengersResult = await executeSQL(pool, "SELECT line_user_id, line_user_name FROM users WHERE line_user_driver = @line_user_driver", { line_user_driver });
 
 				const passengerData = [];
 				const currentDate = new Date();
+				currentDate.setHours(currentDate.getHours() + 8); // 轉換為台灣時間 (UTC+8)
 				const currentMonth = currentDate.toISOString().slice(0, 7);
 
 				for (const passenger of passengersResult.recordset) {
@@ -553,5 +547,6 @@ module.exports = function (pool) {
 			res.status(500).json({ message: '查詢過程中出現錯誤' });
 		}
 	});
+
 	return router;
 };
