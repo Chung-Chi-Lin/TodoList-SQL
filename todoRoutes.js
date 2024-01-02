@@ -362,10 +362,11 @@ module.exports = function (pool) {
 					res.json({ message: '當月搭乘時間已更新', id: updateId });
 				} else {
 					await executeSQL(pool, `
-                    INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note)
-                    VALUES (@line_user_driver, @start_date, @end_date, @reverse_type, @note)
-                `, { line_user_driver: line_user_id, start_date, end_date, reverse_type, note });
+                    INSERT INTO driver_dates (line_user_driver, start_date, end_date, reverse_type, note, pass_limit)
+                    VALUES (@line_user_driver, @start_date, @end_date, @reverse_type, @note, @pass_limit)
+                `, { line_user_driver: line_user_id, start_date, end_date, reverse_type, note, pass_limit });
 					// 回傳新增記錄的ID
+					res.json({ message: '新的搭乘時間已添加', status: 'success' });
 				}
 			} else if (reverse_type === 0) {
 				const params = { line_user_driver: line_user_id, start_date, end_date };
@@ -384,6 +385,7 @@ module.exports = function (pool) {
                 VALUES (@line_user_driver, @start_date, @end_date, @reverse_type, @note)
             `, { line_user_driver: line_user_id, start_date, end_date, reverse_type, note });
 				// 回傳新增記錄的ID
+				res.json({ message: '新的不搭乘時間已添加', status: 'success' });
 			}
 		} catch (err) {
 			console.error('創建預約錯誤:', err);
