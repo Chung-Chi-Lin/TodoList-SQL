@@ -45,7 +45,7 @@ module.exports = function (pool) {
 	router.get('/check-line-id', async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
-			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", {lineId});
+			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
 
 			if (result.recordset.length > 0) {
 				// 找到匹配的 Line ID，返回相關資料
