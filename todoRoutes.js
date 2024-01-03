@@ -29,13 +29,11 @@ module.exports = function (pool) {
 	// 共用的 executeSQL 函数
 	async function executeSQL(pool, query, params) {
 		try {
-			console.log('Executing SQL query:', query, params);
 			const request = pool.request();
 			for (const param in params) {
 				request.input(param, params[param]);
 			}
 			const result = await request.query(query);
-			console.log('SQL query executed successfully', result);
 			return result;
 		} catch (err) {
 			console.error('SQL Error:', err);
@@ -88,28 +86,23 @@ module.exports = function (pool) {
 	});
 	// 登入
 	router.post('/users/login', async (req, res) => {
-		console.log('Login request received', req.body);
 		try {
 			const { email, password } = req.body;
 			const result = await executeSQL(pool, 'SELECT * FROM users_by_pick_time WHERE email = @email', { email });
 			const userFromDb = result.recordset[0];
 			if (userFromDb) {
-				console.log('User found in database', userFromDb);
 				const isValid = await bcrypt.compare(password, userFromDb.password_hash);
-				console.log('Password comparison result:', isValid);
+
 				if (isValid) {
-					console.log('Sending response with token', token);
 					const token = jwt.sign({ userName: userFromDb.user_name, email: email, userType: userFromDb.user_type }, process.env.JWT_SECRET, { expiresIn: '1d' });
 					res.status(200).send({ token: token, userInfo: { userName: userFromDb.user_name, email: email, userType: userFromDb.user_type } });
 				} else {
-					console.log('Authentication failed for user', email);
 					res.status(401).send('認證失敗');
 				}
 			} else {
 				res.status(400).send('用戶不存在');
 			}
 		} catch (err) {
-			console.error('Error during login:', err);
 			res.status(500).send(err.message);
 		}
 	});
