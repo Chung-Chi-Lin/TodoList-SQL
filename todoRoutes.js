@@ -99,7 +99,6 @@ module.exports = function (pool) {
 			const userFromDb = result.recordset[0];
 			if (userFromDb) {
 				const isValid = await bcrypt.compare(password, userFromDb.password_hash);
-
 				if (isValid) {
 					const token = jwt.sign({ userName: userFromDb.user_name, email: email, userType: userFromDb.user_type }, process.env.JWT_SECRET, { expiresIn: '1d' });
 					res.status(200).send({ token: token, userInfo: { userName: userFromDb.user_name, email: email, userType: userFromDb.user_type } });
@@ -110,6 +109,7 @@ module.exports = function (pool) {
 				res.status(400).send('用戶不存在');
 			}
 		} catch (err) {
+			console.error('Error during login:', err);
 			res.status(500).send(err.message);
 		}
 	});
