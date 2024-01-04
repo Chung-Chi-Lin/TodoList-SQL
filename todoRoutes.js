@@ -1,12 +1,19 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 module.exports = function (pool) {
 	const router = express.Router();
+	// 限制api用量
+	const limiter = rateLimit({
+		windowMs: 24 * 60 * 60 * 1000, // 24 小时
+		max: 3, // 每个 IP 地址在 24 小时内最多请求 3 次
+		message: '超出今日请求次數限制，請明日重試'
+	});
 
 	// 驗證token函式
-	function authenticateToken(req, res, next) {
+	const authenticateToken = (req, res, next) => {
 		const authHeader = req.headers['authorization'];
 
 		if (!authHeader) return res.sendStatus(401); // 如果沒有授權頭，返回401
@@ -42,7 +49,7 @@ module.exports = function (pool) {
 	}
 
 	// GET 請求 - 驗證 Line ID 並返回對應的用戶資料
-	router.get('/check-line-id', async (req, res) => {
+	router.get('/check-line-id', limiter, async (req, res) => {
 		try {
 			const lineId = req.query.lineId;
 			const result = await executeSQL(pool, "SELECT * FROM users WHERE line_user_id = @line_user_id", { line_user_id: lineId });
