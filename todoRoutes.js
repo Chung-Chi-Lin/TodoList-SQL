@@ -7,8 +7,8 @@ module.exports = function (pool) {
 	const router = express.Router();
 	// 限制api用量
 	const limiter = rateLimit({
-		windowMs: 24 * 60 * 60 * 1000, // 24 小时
-		max: 3, // 每个 IP 地址在 24 小时内最多请求 3 次
+		windowMs: 24 * 60 * 60 * 1000, // 24 小時
+		max: 3, // 每個 IP 地址在 24 小時内最多请求 3 次
 		message: '超出今日请求次數限制，請明日重試'
 	});
 
