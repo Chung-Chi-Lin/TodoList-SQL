@@ -4,6 +4,8 @@ const cors = require('cors');
 const sql = require('mssql');
 // const mysql = require('mysql2/promise');
 const app = express();
+// 信任代理
+app.set('trust proxy', true);
 // 先把mssql刪除之後在加回來
 // 连接池配置
 // const dbConfig = {
