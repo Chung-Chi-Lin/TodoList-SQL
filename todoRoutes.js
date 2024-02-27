@@ -9,7 +9,7 @@ module.exports = function (pool) {
 	const limiter = rateLimit({
 		windowMs: 24 * 60 * 60 * 1000, // 24 小時
 		max: 3, // 每個 IP 地址在 24 小時内最多请求 3 次
-		message: '超出今日请求次數限制，請明日重試'
+		message: '超出今日請求次數，請明日重試'
 	});
 
 	// 驗證token函式
