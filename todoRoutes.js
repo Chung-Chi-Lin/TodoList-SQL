@@ -35,12 +35,14 @@ module.exports = function (pool) {
 
 	// 共用的 executeSQL 函数
 	async function executeSQL(pool, query, params) {
+		console.log(`Executing SQL query: ${query}`);
 		try {
 			const request = pool.request();
 			for (const param in params) {
 				request.input(param, params[param]);
 			}
 			const result = await request.query(query);
+			console.log('Query successful:', result);
 			return result;
 		} catch (err) {
 			console.error('SQL Error:', err);
