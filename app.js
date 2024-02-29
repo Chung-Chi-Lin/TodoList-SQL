@@ -27,7 +27,7 @@ const dbConfig = {
 // 建立數據庫連接池
 const pool = new sql.ConnectionPool(dbConfig);
 const poolConnect = pool.connect();
-
+console.log("測試連線", pool);
 // 數據庫連接池事件處理
 pool.on('error', err => {
 	console.error('Unexpected error on idle pool', err);
@@ -37,6 +37,7 @@ pool.on('error', err => {
 poolConnect.then(() => {
 	console.log('Connected to the database.');
 }).catch((err) => {
+	console.log('Database connection error');
 	console.error('Database connection error:', err);
 });
 
