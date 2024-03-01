@@ -22,37 +22,36 @@ const dbConfig = {
 const pool = new sql.ConnectionPool(dbConfig);
 let poolConnect = pool.connect();
 
-// Reconnection strategy
+// 重新連線資料庫
 async function reconnect(attempt = 1) {
 	const maxAttempts = 5;
-	const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // Exponential backoff
+	const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
 
 	console.log(`Attempting to reconnect (Attempt ${attempt})...`);
 	await new Promise(resolve => setTimeout(resolve, delay));
 
 	try {
-		await pool.close(); // Ensure previous connections are closed
-		poolConnect = pool.connect(); // Attempt to reconnect
-		await poolConnect; // Wait for the connection to be established
+		await pool.close(); // 確保先前連接斷開
+		poolConnect = pool.connect(); // 重新連接
+		await poolConnect;
 		console.log('Database reconnection successful.');
-		startServer(); // Start the server after successful reconnection
+		startServer(); // 重連後啟動伺服器
 	} catch (err) {
 		console.error('Reconnection attempt failed:', err);
 		if (attempt < maxAttempts) {
-			await reconnect(attempt + 1); // Retry with incremented attempt count
+			await reconnect(attempt + 1); // 限制遞增五次重新連接
 		} else {
 			console.error('Max reconnection attempts reached. Exiting.');
-			process.exit(1); // Exit if max attempts are reached
+			process.exit(1);
 		}
 	}
 }
 
 pool.on('error', async err => {
 	console.error('Unexpected error on idle pool:', err);
-	await reconnect(); // Attempt to reconnect on pool errors
+	await reconnect();
 });
 
-// Start the server
 function startServer() {
 	const PORT = process.env.PORT || 3000;
 	app.listen(PORT, () => {
@@ -60,16 +59,14 @@ function startServer() {
 	});
 }
 
-// Wait for the database connection before starting the server
 poolConnect.then(() => {
 	console.log('Connected to the database.');
-	startServer(); // Start the server after a successful connection
+	startServer();
 }).catch(async err => {
 	console.error('Initial database connection error:', err);
-	await reconnect(); // Attempt to reconnect if initial connection fails
+	await reconnect(); // 失敗重新連線
 });
 
-// Define routes
 const todoRoutes = require('./todoRoutes')(pool);
 app.use('/api', todoRoutes);
 

@@ -42,7 +42,6 @@ module.exports = function (pool) {
 				request.input(param, params[param]);
 			}
 			const result = await request.query(query);
-			console.log('Query successful:', result);
 			return result;
 		} catch (err) {
 			console.error('SQL Error:', err);
@@ -105,7 +104,7 @@ module.exports = function (pool) {
 					const token = jwt.sign({ userName: userFromDb.user_name, email: email, userType: userFromDb.user_type }, process.env.JWT_SECRET, { expiresIn: '1d' });
 					res.status(200).send({ token: token, userInfo: { userName: userFromDb.user_name, email: email, userType: userFromDb.user_type } });
 				} else {
-					res.status(401).send('認證失敗');
+					res.status(401).send('帳號密碼錯誤');
 				}
 			} else {
 				res.status(400).send('用戶不存在');
